@@ -113,4 +113,4 @@ func (p *prototype) After(name string, t Task) Prototype {
 }
 
 // Input name of the input
-const Input = "INPUT"
+const Input = "input"
