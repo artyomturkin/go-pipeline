@@ -136,3 +136,60 @@ func TestMultipleTasksFromFuncError(t *testing.T) {
 		t.Errorf("Wrong count. Want 0, got %d", count)
 	}
 }
+
+func TestAfterTasksFromFunc(t *testing.T) {
+	strm := getStringStream()
+
+	msgs := []string{}
+	mu := &sync.Mutex{}
+	saveMsgs := pipeline.TaskFromFunc("save-msgs",
+		func(ctx context.Context, msg interface{}) (interface{}, error) {
+			mu.Lock()
+			defer mu.Unlock()
+
+			msgs = append(msgs, msg.(string))
+
+			return msg, nil
+		})
+
+	var count int32
+	countMsgs := pipeline.TaskFromFunc("count-msgs",
+		func(ctx context.Context, msg interface{}) (interface{}, error) {
+			atomic.AddInt32(&count, 1)
+
+			return msg, nil
+		})
+
+	var count2 int32
+	count2Msgs := pipeline.TaskFromFunc("count2-msgs",
+		func(ctx context.Context, msg interface{}) (interface{}, error) {
+			atomic.AddInt32(&count2, 1)
+
+			return msg, nil
+		})
+
+	r := pipeline.New("empty-test").
+		From(strm, getIDFromString).
+		Then(saveMsgs).
+		Then(countMsgs).
+		After("save-msgs", count2Msgs).
+		Start(context.TODO())
+
+	<-r.Done()
+
+	if len(strm.Acks) != 10 {
+		t.Errorf("Wrong number of Acks. Want 10, got %d", len(strm.Acks))
+	}
+
+	if len(msgs) != 10 {
+		t.Errorf("Wrong number of msgs. Want 10, got %d", len(strm.Acks))
+	}
+
+	if count != 10 {
+		t.Errorf("Wrong count. Want 10, got %d", count)
+	}
+
+	if count2 != 10 {
+		t.Errorf("Wrong second count. Want 10, got %d", count)
+	}
+}

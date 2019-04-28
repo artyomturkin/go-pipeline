@@ -2,6 +2,7 @@ package pipeline
 
 import (
 	"context"
+	"fmt"
 	"github.com/artyomturkin/go-stream"
 	"sync"
 )
@@ -11,6 +12,7 @@ type Prototype interface {
 	From(source stream.Stream, getID func(interface{}) string) Prototype
 	To(output stream.Stream) Prototype
 	Then(t Task) Prototype
+	After(name string, t Task) Prototype
 
 	Start(context.Context) Runner
 }
@@ -86,6 +88,26 @@ func (p *prototype) Then(t Task) Prototype {
 		p.last.AddNext(t)
 	}
 
+	p.last = t
+
+	return p
+}
+
+func (p *prototype) After(name string, t Task) Prototype {
+	p.Lock()
+	defer p.Unlock()
+
+	if p.first == nil {
+		panic(fmt.Errorf("After can be used only when some other task exists"))
+	}
+
+	if l, ok := p.tasks[name]; ok {
+		l.AddNext(t)
+	} else {
+		panic(fmt.Errorf("Task '%s' does not exist", name))
+	}
+
+	p.tasks[t.Name()] = t
 	p.last = t
 
 	return p
