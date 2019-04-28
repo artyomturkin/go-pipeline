@@ -48,7 +48,7 @@ func TestSimplePipeline(t *testing.T) {
 
 	msgs := []string{}
 	mu := &sync.Mutex{}
-	saveMsgs := pipeline.TaskFunc("save-msgs",
+	saveMsgs := pipeline.TaskFromFunc("save-msgs",
 		func(ctx context.Context, msg interface{}) (interface{}, error) {
 			mu.Lock()
 			defer mu.Unlock()
@@ -59,7 +59,7 @@ func TestSimplePipeline(t *testing.T) {
 		})
 
 	var count int32
-	countMsgs := pipeline.TaskFunc("count-msgs",
+	countMsgs := pipeline.TaskFromFunc("count-msgs",
 		func(ctx context.Context, msg interface{}) (interface{}, error) {
 			atomic.AddInt32(&count, 1)
 
@@ -92,7 +92,7 @@ func TestSimplePipelineError(t *testing.T) {
 
 	msgs := []string{}
 	mu := &sync.Mutex{}
-	saveMsgs := pipeline.TaskFunc("save-msgs",
+	saveMsgs := pipeline.TaskFromFunc("save-msgs",
 		func(ctx context.Context, msg interface{}) (interface{}, error) {
 			mu.Lock()
 			defer mu.Unlock()
@@ -102,13 +102,13 @@ func TestSimplePipelineError(t *testing.T) {
 			return msg, nil
 		})
 
-	errTask := pipeline.TaskFunc("error",
+	errTask := pipeline.TaskFromFunc("error",
 		func(ctx context.Context, msg interface{}) (interface{}, error) {
 			return nil, fmt.Errorf("expected error")
 		})
 
 	var count int32
-	countMsgs := pipeline.TaskFunc("count-msgs",
+	countMsgs := pipeline.TaskFromFunc("count-msgs",
 		func(ctx context.Context, msg interface{}) (interface{}, error) {
 			atomic.AddInt32(&count, 1)
 
