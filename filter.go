@@ -48,3 +48,5 @@ func (f *filter) Execute(ctx context.Context, i interface{}) error {
 
 	return ExecTasks(ctx, f.next, i)
 }
+
+func (f *filter) SetContext(ctx context.Context) {}

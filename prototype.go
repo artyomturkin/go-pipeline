@@ -64,6 +64,10 @@ func (p *prototype) Start(ctx context.Context) Runner {
 	r.getID = p.getID
 	r.first = p.first
 
+	for _, t := range p.tasks {
+		t.SetContext(ctx)
+	}
+
 	go r.Run()
 	return r
 }

@@ -11,6 +11,7 @@ type Task interface {
 	Name() string
 	AddNext(Task)
 	Execute(context.Context, interface{}) error
+	SetContext(context.Context)
 }
 
 // ExecTasks helper func to execute a group of tasks

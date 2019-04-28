@@ -36,3 +36,5 @@ func (f *taskFromFunc) Execute(ctx context.Context, i interface{}) error {
 
 	return ExecTasks(ctx, f.next, res)
 }
+
+func (f *taskFromFunc) SetContext(ctx context.Context) {}
