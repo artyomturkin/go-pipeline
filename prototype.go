@@ -31,7 +31,6 @@ type prototype struct {
 	name   string
 	source stream.Stream
 	getID  func(interface{}) string
-	output stream.Stream
 
 	last  Task
 	first []Task
