@@ -2,6 +2,7 @@ package pipeline
 
 import (
 	"context"
+	"fmt"
 	"github.com/artyomturkin/go-stream"
 	"sync"
 )
@@ -51,7 +52,8 @@ func (r *runner) Run() {
 			if !ok {
 				return
 			}
-			ctx := context.WithValue(msg.Context, IDKey, r.getID(msg.Data))
+			ctx := context.WithValue(msg.Context, NameKey, r.name)
+			ctx = context.WithValue(ctx, IDKey, r.getID(msg.Data))
 			r.wg.Add(1)
 			go r.handle(ctx, msg.Data)
 		}
@@ -62,13 +64,44 @@ func (r *runner) handle(ctx context.Context, m interface{}) {
 	defer r.wg.Done()
 
 	if r.first != nil {
-		err := r.first.Execute(ctx, m)
+		err := ExecTasks(ctx, []Task{r.first}, m)
 
 		if err != nil {
 			r.strm.Nack(ctx)
+			return
 		}
-
 	}
 
 	r.strm.Ack(ctx)
+}
+
+// ExecTasks helper func to execute a group of tasks
+func ExecTasks(ctx context.Context, tasks []Task, i interface{}) error {
+	errs := []error{}
+	wg := &sync.WaitGroup{}
+	mu := &sync.Mutex{}
+
+	for _, t := range tasks {
+		wg.Add(1)
+
+		go func(t Task) {
+			defer wg.Done()
+
+			err := t.Execute(ctx, i)
+			if err != nil {
+				mu.Lock()
+				defer mu.Unlock()
+
+				errs = append(errs, err)
+			}
+		}(t)
+	}
+
+	wg.Wait()
+
+	if len(errs) > 0 {
+		return fmt.Errorf("Continuation tasks failed: %v", errs)
+	}
+
+	return nil
 }
