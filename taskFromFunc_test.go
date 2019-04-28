@@ -31,7 +31,7 @@ func getIDFromString(i interface{}) string {
 	return i.(string)
 }
 
-func TestEmptyPipeline(t *testing.T) {
+func TestNoTasks(t *testing.T) {
 	strm := getStringStream()
 
 	r := pipeline.New("empty-test").From(strm, getIDFromString).Start(context.TODO())
@@ -43,7 +43,7 @@ func TestEmptyPipeline(t *testing.T) {
 	}
 }
 
-func TestSimplePipeline(t *testing.T) {
+func TestMultipleTasksFromFunc(t *testing.T) {
 	strm := getStringStream()
 
 	msgs := []string{}
@@ -87,7 +87,7 @@ func TestSimplePipeline(t *testing.T) {
 	}
 }
 
-func TestSimplePipelineError(t *testing.T) {
+func TestMultipleTasksFromFuncError(t *testing.T) {
 	strm := getStringStream()
 
 	msgs := []string{}
