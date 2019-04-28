@@ -10,7 +10,6 @@ import (
 // Prototype pipeline builder
 type Prototype interface {
 	From(source stream.Stream, getID func(interface{}) string) Prototype
-	To(output stream.Stream) Prototype
 	Then(t Task) Prototype
 	After(name string, t Task) Prototype
 
@@ -46,14 +45,6 @@ func (p *prototype) From(s stream.Stream, getID func(interface{}) string) Protot
 
 	p.source = s
 	p.getID = getID
-	return p
-}
-
-func (p *prototype) To(s stream.Stream) Prototype {
-	p.Lock()
-	defer p.Unlock()
-
-	p.output = s
 	return p
 }
 
