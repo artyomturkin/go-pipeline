@@ -22,6 +22,7 @@ func New(name string) Prototype {
 	return &prototype{
 		name:  name,
 		tasks: map[string]Task{},
+		first: []Task{},
 	}
 }
 
@@ -34,7 +35,7 @@ type prototype struct {
 	output stream.Stream
 
 	last  Task
-	first Task
+	first []Task
 
 	tasks map[string]Task
 }
@@ -78,8 +79,8 @@ func (p *prototype) Then(t Task) Prototype {
 	p.Lock()
 	defer p.Unlock()
 
-	if p.first == nil {
-		p.first = t
+	if len(p.first) == 0 {
+		p.first = append(p.first, t)
 	}
 
 	p.tasks[t.Name()] = t
@@ -97,11 +98,9 @@ func (p *prototype) After(name string, t Task) Prototype {
 	p.Lock()
 	defer p.Unlock()
 
-	if p.first == nil {
-		panic(fmt.Errorf("After can be used only when some other task exists"))
-	}
-
-	if l, ok := p.tasks[name]; ok {
+	if name == Input {
+		p.first = append(p.first, t)
+	} else if l, ok := p.tasks[name]; ok {
 		l.AddNext(t)
 	} else {
 		panic(fmt.Errorf("Task '%s' does not exist", name))
@@ -112,3 +111,6 @@ func (p *prototype) After(name string, t Task) Prototype {
 
 	return p
 }
+
+// Input name of the input
+const Input = "INPUT"

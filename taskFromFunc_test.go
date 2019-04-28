@@ -172,7 +172,7 @@ func TestAfterTasksFromFunc(t *testing.T) {
 		From(strm, getIDFromString).
 		Then(saveMsgs).
 		Then(countMsgs).
-		After("save-msgs", count2Msgs).
+		After(pipeline.Input, count2Msgs).
 		Start(context.TODO())
 
 	<-r.Done()

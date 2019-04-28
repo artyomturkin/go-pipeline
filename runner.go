@@ -17,7 +17,7 @@ type runner struct {
 	wg     *sync.WaitGroup
 	donech chan struct{}
 
-	first Task
+	first []Task
 
 	name  string
 	strm  stream.Consumer
@@ -64,7 +64,7 @@ func (r *runner) handle(ctx context.Context, m interface{}) {
 	defer r.wg.Done()
 
 	if r.first != nil {
-		err := ExecTasks(ctx, []Task{r.first}, m)
+		err := ExecTasks(ctx, r.first, m)
 
 		if err != nil {
 			r.strm.Nack(ctx)
