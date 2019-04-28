@@ -1,263 +1,138 @@
-package stream_test
+package pipeline_test
 
 import (
 	"context"
-	"errors"
-	"strconv"
+	"fmt"
+	"github.com/artyomturkin/go-pipeline"
+	"github.com/artyomturkin/go-stream"
 	"sync"
+	"sync/atomic"
 	"testing"
-	"time"
-
-	stream "github.com/artyomturkin/go-stream"
 )
 
-func forward(_ context.Context, m *stream.Message) (*stream.Message, error) {
-	return m, nil
+func getStringStream() *stream.InmemStream {
+	return &stream.InmemStream{
+		Messages: []interface{}{
+			"message-0",
+			"message-1",
+			"message-2",
+			"message-3",
+			"message-4",
+			"message-5",
+			"message-6",
+			"message-7",
+			"message-8",
+			"message-9",
+		},
+	}
 }
 
-var errorExpected = errors.New("expected error")
+func getIDFromString(i interface{}) string {
+	return i.(string)
+}
 
-func forwardAndFailAfter(n int) func(_ context.Context, m *stream.Message) (*stream.Message, error) {
+func TestEmptyPipeline(t *testing.T) {
+	strm := getStringStream()
+
+	r := pipeline.New("empty-test").From(strm, getIDFromString).Start(context.TODO())
+
+	<-r.Done()
+
+	if len(strm.Acks) != 10 {
+		t.Errorf("Wrong number of Acks. Want 10, got %d", len(strm.Acks))
+	}
+}
+
+func TestSimplePipeline(t *testing.T) {
+	strm := getStringStream()
+
+	msgs := []string{}
 	mu := &sync.Mutex{}
-	count := 0
+	saveMsgs := pipeline.TaskFunc("save-msgs",
+		func(ctx context.Context, msg interface{}) (interface{}, error) {
+			mu.Lock()
+			defer mu.Unlock()
 
-	return func(_ context.Context, m *stream.Message) (*stream.Message, error) {
-		mu.Lock()
-		defer mu.Unlock()
-		count++
+			msgs = append(msgs, msg.(string))
 
-		if count > n {
-			return nil, errorExpected
-		}
+			return msg, nil
+		})
 
-		return m, nil
+	var count int32
+	countMsgs := pipeline.TaskFunc("count-msgs",
+		func(ctx context.Context, msg interface{}) (interface{}, error) {
+			atomic.AddInt32(&count, 1)
+
+			return msg, nil
+		})
+
+	r := pipeline.New("empty-test").
+		From(strm, getIDFromString).
+		Then(saveMsgs).
+		Then(countMsgs).
+		Start(context.TODO())
+
+	<-r.Done()
+
+	if len(strm.Acks) != 10 {
+		t.Errorf("Wrong number of Acks. Want 10, got %d", len(strm.Acks))
+	}
+
+	if len(msgs) != 10 {
+		t.Errorf("Wrong number of msgs. Want 10, got %d", len(strm.Acks))
+	}
+
+	if count != 10 {
+		t.Errorf("Wrong count. Want 10, got %d", count)
 	}
 }
 
-func TestPipeline_Success(t *testing.T) {
-	// setup test data
-	msgs := []*stream.Message{}
-	pubs := map[*stream.Message]error{}
-	tmsgs := []TestMessage{}
+func TestSimplePipelineError(t *testing.T) {
+	strm := getStringStream()
 
-	for index := 0; index < 10; index++ {
-		msg := &stream.Message{
-			Source: "test",
-			Type:   "int",
-			ID:     strconv.Itoa(index),
-			Time:   time.Now(),
-			Data:   index,
-		}
+	msgs := []string{}
+	mu := &sync.Mutex{}
+	saveMsgs := pipeline.TaskFunc("save-msgs",
+		func(ctx context.Context, msg interface{}) (interface{}, error) {
+			mu.Lock()
+			defer mu.Unlock()
 
-		pubs[msg] = nil
-		tmsgs = append(tmsgs, TestMessage{Message: msg, Error: nil})
-		msgs = append(msgs, msg)
+			msgs = append(msgs, msg.(string))
+
+			return msg, nil
+		})
+
+	errTask := pipeline.TaskFunc("error",
+		func(ctx context.Context, msg interface{}) (interface{}, error) {
+			return nil, fmt.Errorf("expected error")
+		})
+
+	var count int32
+	countMsgs := pipeline.TaskFunc("count-msgs",
+		func(ctx context.Context, msg interface{}) (interface{}, error) {
+			atomic.AddInt32(&count, 1)
+
+			return msg, nil
+		})
+
+	r := pipeline.New("empty-test").
+		From(strm, getIDFromString).
+		Then(saveMsgs).
+		Then(errTask).
+		Then(countMsgs).
+		Start(context.TODO())
+
+	<-r.Done()
+
+	if len(strm.Nacks) != 10 {
+		t.Errorf("Wrong number of Acks. Want 10, got %d", len(strm.Acks))
 	}
 
-	// create test streams
-	source := &TestStream{Messages: tmsgs}
-	output := &TestStream{PubResults: pubs}
-
-	// create pipeline
-	p := stream.NewPipeline("test").From(source).Do(forward).To(output).Build(context.TODO())
-
-	// wait for timeout or completion
-	select {
-	case <-time.After(time.Second):
-		t.Fatalf("test timed out")
-	case err := <-p.Done():
-		if e, ok := err.(stream.ErrorReadingMessage); !ok || (ok && e.Internal() != ErrorNoNewMessages) {
-			t.Fatalf("got unexpected error: %v", err)
-		}
+	if len(msgs) != 10 {
+		t.Errorf("Wrong number of msgs. Want 10, got %d", len(strm.Acks))
 	}
 
-	err := <-p.Done() // for coverage report call twice
-	if e, ok := err.(stream.ErrorReadingMessage); !ok || (ok && e.Internal() != ErrorNoNewMessages) {
-		t.Fatalf("got unexpected error second time: %v", err)
-	}
-
-	// perform assertions
-	if len(msgs) != len(output.PublishedMessages) {
-		t.Fatalf("published message count does not match expected. got %d/%d", len(output.PublishedMessages), len(msgs))
-	}
-}
-
-func TestPipeline_FailStep(t *testing.T) {
-	// setup test data
-	msgs := []*stream.Message{}
-	pubs := map[*stream.Message]error{}
-	tmsgs := []TestMessage{}
-
-	for index := 0; index < 10; index++ {
-		msg := &stream.Message{
-			Source: "test",
-			Type:   "int",
-			ID:     strconv.Itoa(index),
-			Time:   time.Now(),
-			Data:   index,
-		}
-
-		pubs[msg] = nil
-		tmsgs = append(tmsgs, TestMessage{Message: msg, Error: nil})
-		msgs = append(msgs, msg)
-	}
-
-	// create test streams
-	source := &TestStream{Messages: tmsgs, BlockAfterAllMessagesRead: true}
-	output := &TestStream{PubResults: pubs}
-
-	// create pipeline
-	p := stream.NewPipeline("test").
-		From(source).
-		Do(forwardAndFailAfter(5)).
-		To(output).
-		MaxErrors(0).
-		Build(context.TODO())
-
-	// wait for timeout or completion
-	select {
-	case <-time.After(2 * time.Second):
-		t.Fatalf("test timed out")
-	case err := <-p.Done():
-		if _, ok := err.(stream.ErrorMaxErrorsExceeded); !ok {
-			t.Fatalf("got unexpected error: %v", err)
-		}
-	}
-
-	// perform assertions
-	if 5 != len(output.PublishedMessages) {
-		t.Fatalf("published message count does not match expected. got %d/%d", len(output.PublishedMessages), 5)
-	}
-}
-
-func TestPipeline_FailAck(t *testing.T) {
-	// setup test data
-	msgs := []*stream.Message{}
-	pubs := map[*stream.Message]error{}
-	tmsgs := []TestMessage{}
-
-	for index := 0; index < 10; index++ {
-		msg := &stream.Message{
-			Source: "test",
-			Type:   "int",
-			ID:     strconv.Itoa(index),
-			Time:   time.Now(),
-			Data:   index,
-		}
-
-		pubs[msg] = nil
-		tmsgs = append(tmsgs, TestMessage{Message: msg, Error: nil})
-		msgs = append(msgs, msg)
-	}
-
-	// create test streams
-	source := &TestStream{
-		Messages: tmsgs,
-		AckResults: map[*stream.Message]error{
-			msgs[5]: errorExpected,
-		},
-		BlockAfterAllMessagesRead: true,
-	}
-	output := &TestStream{PubResults: pubs}
-
-	// create pipeline
-	p := stream.NewPipeline("test").From(source).Do(forward).To(output).Build(context.TODO())
-
-	// wait for timeout or completion
-	select {
-	case <-time.After(time.Second):
-		t.Fatalf("test timed out")
-	case err := <-p.Done():
-		if _, ok := err.(stream.ErrorAckMsg); !ok {
-			t.Fatalf("got unexpected error: %v", err)
-		}
-	}
-}
-
-func TestPipeline_FailNack(t *testing.T) {
-	// setup test data
-	msgs := []*stream.Message{}
-	pubs := map[*stream.Message]error{}
-	tmsgs := []TestMessage{}
-
-	for index := 0; index < 10; index++ {
-		msg := &stream.Message{
-			Source: "test",
-			Type:   "int",
-			ID:     strconv.Itoa(index),
-			Time:   time.Now(),
-			Data:   index,
-		}
-
-		pubs[msg] = nil
-		tmsgs = append(tmsgs, TestMessage{Message: msg, Error: nil})
-		msgs = append(msgs, msg)
-	}
-
-	// create test streams
-	source := &TestStream{
-		Messages:                  tmsgs,
-		BlockAfterAllMessagesRead: true,
-		AckResults: map[*stream.Message]error{
-			msgs[5]: errorExpected,
-		},
-	}
-	output := &TestStream{PubResults: pubs}
-
-	// create pipeline
-	p := stream.NewPipeline("test").
-		From(source).
-		Do(forwardAndFailAfter(0)).
-		To(output).
-		Build(context.TODO())
-
-	// wait for timeout or completion
-	select {
-	case <-time.After(2 * time.Second):
-		t.Fatalf("test timed out")
-	case err := <-p.Done():
-		if _, ok := err.(stream.ErrorNackMsg); !ok {
-			t.Errorf("got unexpected error: %v", err)
-		}
-	}
-}
-
-func TestPipeline_CancelContext(t *testing.T) {
-	// setup test data
-	msgs := []*stream.Message{}
-	pubs := map[*stream.Message]error{}
-	tmsgs := []TestMessage{}
-
-	for index := 0; index < 10; index++ {
-		msg := &stream.Message{
-			Source: "test",
-			Type:   "int",
-			ID:     strconv.Itoa(index),
-			Time:   time.Now(),
-			Data:   index,
-		}
-
-		pubs[msg] = nil
-		tmsgs = append(tmsgs, TestMessage{Message: msg, Error: nil})
-		msgs = append(msgs, msg)
-	}
-
-	// create test streams
-	source := &TestStream{Messages: tmsgs, BlockAfterAllMessagesRead: true}
-	output := &TestStream{PubResults: pubs}
-
-	// create pipeline and cancel it
-	ctx, cancel := context.WithCancel(context.TODO())
-	p := stream.NewPipeline("test").From(source).Do(forward).To(output).Build(ctx)
-	cancel()
-
-	// wait for timeout or completion
-	select {
-	case <-time.After(time.Second):
-		t.Fatalf("test timed out")
-	case err := <-p.Done():
-		if e, ok := err.(stream.ErrorReadingMessage); !ok || (ok && e.Internal() != ErrorStreamCanceled) {
-			t.Fatalf("got unexpected error: %v", err)
-		}
+	if count != 0 {
+		t.Errorf("Wrong count. Want 0, got %d", count)
 	}
 }
