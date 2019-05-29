@@ -15,7 +15,6 @@ func Batch(name string, size int, interval time.Duration) Task {
 		inputCh: make(chan batchInput),
 	}
 
-	go b.run()
 
 	return b
 }
@@ -33,6 +32,7 @@ type batch struct {
 
 func (b *batch) SetContext(ctx context.Context) {
 	b.ctx = ctx
+	go b.run()
 }
 
 func (b *batch) Name() string {
