@@ -10,9 +10,12 @@ import (
 // Runner running pipeline
 type Runner interface {
 	Done() <-chan struct{}
+	Errors() <-chan error
 }
 
 type runner struct {
+	sync.Mutex
+
 	ctx    context.Context
 	wg     *sync.WaitGroup
 	donech chan struct{}
@@ -22,6 +25,8 @@ type runner struct {
 	name  string
 	strm  stream.Consumer
 	getID func(interface{}) string
+	errCh chan error
+	errChs []chan error
 }
 
 func newRunner(ctx context.Context) *runner {
@@ -29,11 +34,22 @@ func newRunner(ctx context.Context) *runner {
 		ctx:    ctx,
 		donech: make(chan struct{}),
 		wg:     &sync.WaitGroup{},
+		errCh: make(chan error),
 	}
 }
 
 func (r *runner) Done() <-chan struct{} {
 	return r.donech
+}
+
+func (r *runner) Errors() <-chan error {
+	ch := make(chan error)
+
+	r.Lock()
+	defer r.Unlock()
+
+	r.errChs = append(r.errChs, ch)
+	return ch
 }
 
 func (r *runner) Run() {
@@ -42,6 +58,34 @@ func (r *runner) Run() {
 	defer func() {
 		r.wg.Wait()
 		close(r.donech)
+		close(r.errCh)
+	}()
+
+	go func() {
+		wg := &sync.WaitGroup{}
+
+		for {
+			err, ok := <- r.errCh
+			r.Lock()
+
+			if !ok {
+				wg.Wait()
+				for _, ch := range r.errChs {
+					close(ch)
+				}
+				r.Unlock()
+				return
+			}
+
+			for _, ch := range r.errChs {
+				wg.Add(1)
+				go func(ch chan error){
+					ch<-err
+					wg.Done()
+				}(ch)
+			}
+			r.Unlock()
+		}
 	}()
 
 	for {
@@ -68,6 +112,9 @@ func (r *runner) handle(ctx context.Context, m interface{}) {
 
 		if err != nil {
 			r.strm.Nack(ctx)
+
+			r.errCh<-err
+
 			return
 		}
 	}
