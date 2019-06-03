@@ -72,18 +72,19 @@ func (b *batch) run() {
 			}
 		}
 
-		ctx := context.WithValue(b.ctx, IDKey, strings.Join(ids, "|"))
+		if len(msg) > 0 {
+			ctx := context.WithValue(b.ctx, IDKey, strings.Join(ids, "|"))
+			err := ExecTasks(ctx, b.next, msg)
 
-		err := ExecTasks(ctx, b.next, msg)
-
-		for i, bi := range bis {
-			if bi != nil {
-				bi.resCh <- err
-				close(bi.resCh)
-				bis[i] = nil
+			for i, bi := range bis {
+				if bi != nil {
+					bi.resCh <- err
+					close(bi.resCh)
+					bis[i] = nil
+				}
 			}
+			counter = 0
 		}
-		counter = 0
 	}
 
 	for {
